@@ -53,6 +53,13 @@ convention).
   -  If enabled, a nodejs and yarn will be installed on a machine, to provide support
      for webpack and assets precompilation.
 
+-  ``node['chef-version']``
+
+  -  **Type:** integer or boolean
+  -  **Default:** ``false``
+  -  If enabled current chef on OpsWorks will be updated to provided version (if integer
+     provided) or the the latest version (if ``true``).
+
 Cross-application attributes
 ----------------------------
 
