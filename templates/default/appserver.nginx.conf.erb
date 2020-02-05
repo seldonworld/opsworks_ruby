@@ -4,6 +4,7 @@ upstream <%= @name %>_<%= @application[:domains].first %> {
 
 server {
   listen <%= @out[:port] %> proxy_protocol;
+  listen <%= @out[:ssl_port] %> ssl proxy_protocol;
   server_name <%= @application[:domains].join(" ") %> <%= node['hostname'] %>;
   access_log <%= @out[:log_dir] %>/<%= @application[:domains].first %>.access.log;
   error_log <%= @out[:log_dir] %>/<%= @application[:domains].first %>.error.log <%= @out[:log_level] %>;
@@ -12,89 +13,6 @@ server {
   set_real_ip_from 172.31.0.0/16;
   real_ip_header proxy_protocol;
 
-  root <%= File.join(@deploy_dir, 'current', 'public') %>;
-
-  proxy_hide_header X-Powered-By;
-  server_tokens off;
-
-  client_max_body_size <%= @out[:client_max_body_size] || '1m' %>;
-  client_body_timeout <%= @out[:client_body_timeout] || '12' %>;
-  client_header_timeout <%= @out[:client_header_timeout] || '12' %>;
-  keepalive_timeout <%= @out[:keepalive_timeout] || '15' %>;
-  send_timeout <%= @out[:send_timeout] || '10' %>;
-
-<% if @application[:enable_ssl] && @out[:force_ssl] %>
-# Force all http requests to https
-<% if @out[:ssl_port].to_i == 443 %>
-  return 301 https://$host$request_uri;
-<% else %>
-  return 301 https://$host:<%= @out[:ssl_port] %>$request_uri;
-<% end %>
-<% else %>
-  # http support
-  location / {
-    try_files $uri/index.html $uri/index.htm @<%= @name %>;
-  }
-
-  location ^~ /assets/ {
-    gzip_static on;
-    expires max;
-    add_header Cache-Control public;
-    add_header Access-Control-Allow-Origin "$http_origin";
-    add_header Access-Control-Allow-Methods 'GET, PUT, POST, DELETE';
-    add_header Access-Control-Expose-Headers ETag;
-    add_header X-Content-Type-Options nosniff;
-  }
-
-  location @<%= @name %> {
-    proxy_set_header X-Real-IP       $proxy_protocol_addr;
-    proxy_set_header X-Forwarded-For $proxy_protocol_addr;
-    proxy_set_header Host $http_host;
-    <% if @out[:enable_upgrade_method] %>
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    <% end %>
-    proxy_redirect off;
-
-    proxy_read_timeout <%= @out[:proxy_read_timeout] || '60' %>;
-    proxy_send_timeout <%= @out[:proxy_send_timeout] || '60' %>;
-
-    # If you don't find the filename in the static files
-    # Then request it from the <%= @name %> server
-    if (!-f $request_filename) {
-      proxy_pass http://<%= @name %>_<%= @application[:domains].first %>;
-      break;
-    }
-}
-<% end %>
-
-  location /nginx_status {
-    stub_status on;
-    access_log off;
-    allow 127.0.0.1;
-    deny all;
-  }
-
-  <%= @out[:extra_config] %>
-
-  error_page 500 502 503 504 /500.html;
-  location = /500.html {
-    root <%= File.join(@deploy_dir, 'current', 'public') %>;
-  }
-}
-
-<% if @application[:enable_ssl] %>
-server {
-  listen <%= @out[:ssl_port] %> ssl proxy_protocol;
-  server_name <%= @application[:domains].join(" ") %> <%= node['hostname'] %>;
-  access_log <%= @out[:log_dir] %>/<%= @application[:domains].first %>-ssl.access.log;
-  error_log <%= @out[:log_dir] %>/<%= @application[:domains].first %>-ssl.error.log <%= @out[:log_level] %>;
-
-  # VPC CIDR
-  set_real_ip_from 172.31.0.0/16;
-  real_ip_header proxy_protocol;
-
-  ssl on;
   ssl_certificate <%= @ssl_cert_dir %>/<%= @application[:domains].first %>.crt;
   ssl_certificate_key <%= @ssl_cert_dir %>/<%= @application[:domains].first %>.key;
   <% if @application[:ssl_configuration][:chain] -%>
@@ -150,8 +68,14 @@ server {
     add_header X-Content-Type-Options nosniff;
   }
 
+  # https://stackoverflow.com/questions/21230918/nginx-scheme-variable-behind-load-balancer/21911864#21911864
+  map $http_x_forwarded_proto $real_scheme {
+  default $http_x_forwarded_proto;
+  ''      $scheme;
+  }
+
   location @<%= @name %> {
-    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Proto $real_scheme;
     proxy_set_header X-Real-IP       $proxy_protocol_addr;
     proxy_set_header X-Forwarded-For $proxy_protocol_addr;
     proxy_set_header Host $http_host;
@@ -172,6 +96,7 @@ server {
     }
   }
 
+  <%= @out[:extra_config] %>
   <%= @out[:extra_config_ssl] %>
 
   error_page 500 502 503 504 /500.html;
@@ -179,4 +104,3 @@ server {
     root <%= File.join(@deploy_dir, 'current', 'public') %>;
   }
 }
-<% end %>
