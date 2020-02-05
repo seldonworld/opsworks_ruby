@@ -2,6 +2,12 @@ upstream <%= @name %>_<%= @application[:domains].first %> {
  server unix:<%= @deploy_dir.to_s %>/shared/sockets/<%= @name %>.sock fail_timeout=0;
 }
 
+# https://stackoverflow.com/questions/21230918/nginx-scheme-variable-behind-load-balancer/21911864#21911864
+map $http_x_forwarded_proto $real_scheme {
+default $http_x_forwarded_proto;
+''      $scheme;
+}
+
 server {
   listen <%= @out[:port] %> proxy_protocol;
   listen <%= @out[:ssl_port] %> ssl proxy_protocol;
@@ -66,12 +72,6 @@ server {
     add_header Access-Control-Allow-Methods 'GET, PUT, POST, DELETE';
     add_header Access-Control-Expose-Headers ETag;
     add_header X-Content-Type-Options nosniff;
-  }
-
-  # https://stackoverflow.com/questions/21230918/nginx-scheme-variable-behind-load-balancer/21911864#21911864
-  map $http_x_forwarded_proto $real_scheme {
-  default $http_x_forwarded_proto;
-  ''      $scheme;
   }
 
   location @<%= @name %> {
